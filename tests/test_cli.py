@@ -77,5 +77,35 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
 
+class AuditCliTests(unittest.TestCase):
+    run_cli = CliTests.run_cli
+
+    def test_datetime_max_returns_partial_json(self):
+        code, out, err = self.run_cli('* * * * *', '--timezone', 'UTC',
+            '--from', '9999-12-31T23:58:00Z', '--count', '2', '--days', '1', '--json')
+        self.assertEqual(code, 1)
+        self.assertFalse(err)
+        self.assertEqual(json.loads(out)['matches'][0]['utc'], '9999-12-31T23:59:00+00:00')
+
+    def test_datetime_max_returns_empty_json(self):
+        code, out, err = self.run_cli('* * * * *', '--timezone', 'UTC',
+            '--from', '9999-12-31T23:59:00Z', '--count', '1', '--days', '1', '--json')
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)['matches'], [])
+
+    def test_invalid_date_does_not_echo_secret(self):
+        secret = 'secret-from-value'
+        code, out, err = self.run_cli('* * * * *', '--timezone', 'UTC',
+                                     '--from', secret)
+        self.assertEqual(code, 2)
+        self.assertNotIn(secret, out + err)
+
+    def test_invalid_timezone_path_does_not_echo_secret(self):
+        secret = '../../private-token'
+        code, out, err = self.run_cli('* * * * *', '--timezone', secret)
+        self.assertEqual(code, 2)
+        self.assertNotIn(secret, out + err)
+
+
 if __name__ == '__main__':
     unittest.main()
