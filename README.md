@@ -44,3 +44,9 @@ python -m cronshift --help
 ```
 
 Runtime dependencies: Python standard library only. Packaging uses setuptools. No network calls or file modifications are made by the CLI.
+
+## Development checks (November 1, 2026)
+
+On Linux with Python 3.13.5, all 34 `unittest` tests passed. A wheel was built without downloading dependencies, installed in a separate virtual environment, and the installed `cronshift` command was run. The examples above were exercised. Tests cover spring DST gaps, autumn folds, invalid input, output codes, and dates near the supported `datetime` boundaries.
+
+The scanner returns partial results if it reaches the end of Python's representable datetime range. Sparse schedules can require scanning millions of UTC minutes; the maximum horizon is 3,660 days. Windows and Python 3.10–3.12 have not been tested.
