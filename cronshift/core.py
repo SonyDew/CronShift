@@ -121,10 +121,23 @@ def occurrences(schedule: CronSchedule, zone: ZoneInfo, after: datetime, count: 
         raise ValueError("a timezone-aware datetime is required")
     if not 1 <= count <= 100 or not 1 <= days <= 3660:
         raise ValueError("count or horizon outside supported range")
-    start = after.astimezone(timezone.utc).replace(second=0, microsecond=0) + timedelta(minutes=1)
+    utc_after = after.astimezone(timezone.utc)
     result: list[datetime] = []
+    try:
+        start = utc_after.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    except OverflowError:
+        return result
     for index in range(days * 1440):
-        local = (start + timedelta(minutes=index)).astimezone(zone)
+        try:
+            instant = start + timedelta(minutes=index)
+        except OverflowError:
+            break
+        try:
+            local = instant.astimezone(zone)
+        except OverflowError:
+            # A UTC instant near a datetime boundary may have no representable
+            # local counterpart. Later instants can still be representable.
+            continue
         if schedule.matches(local):
             result.append(local)
             if len(result) == count:
