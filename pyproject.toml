@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cronshift"
+version = "0.1.0"
+description = "Inspect five-field cron schedules across time zones and DST changes"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "SonyDev"}]
+dependencies = []
+
+[project.scripts]
+cronshift = "cronshift.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cronshift*"]
