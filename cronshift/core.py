@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 
@@ -110,36 +110,72 @@ class CronSchedule:
         return dom or dow
 
 
+def _matches_day(schedule: CronSchedule, day: date) -> bool:
+    if day.month not in schedule.month.allowed:
+        return False
+    dom = day.day in schedule.day_of_month.allowed
+    dow = (day.weekday() + 1) % 7 in schedule.day_of_week.allowed
+    if schedule.day_of_month.wildcard:
+        return dow
+    if schedule.day_of_week.wildcard:
+        return dom
+    return dom or dow
+
+
 def occurrences(schedule: CronSchedule, zone: ZoneInfo, after: datetime, count: int = 5,
                 days: int = 366) -> list[datetime]:
-    """Return local times strictly after `after`, ordered by UTC instant.
-
-    Iterating over UTC minutes avoids constructing nonexistent local times and
-    preserves both occurrences of a repeated local minute during a DST fold.
-    """
+    """List real local cron minutes after an instant, including both DST folds."""
     if after.tzinfo is None or after.utcoffset() is None:
         raise ValueError("a timezone-aware datetime is required")
     if not 1 <= count <= 100 or not 1 <= days <= 3660:
         raise ValueError("count or horizon outside supported range")
+
     utc_after = after.astimezone(timezone.utc)
-    result: list[datetime] = []
     try:
-        start = utc_after.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        utc_end = utc_after + timedelta(days=days)
     except OverflowError:
-        return result
-    for index in range(days * 1440):
-        try:
-            instant = start + timedelta(minutes=index)
-        except OverflowError:
+        utc_end = datetime.max.replace(tzinfo=timezone.utc)
+    try:
+        first_day = utc_after.astimezone(zone).date()
+    except OverflowError:
+        first_day = date.max if utc_after.year == 9999 else date.min
+    try:
+        last_day = utc_end.astimezone(zone).date()
+    except OverflowError:
+        last_day = date.max if utc_end.year == 9999 else date.min
+
+    result: list[datetime] = []
+    day = first_day
+    hours = sorted(schedule.hour.allowed)
+    minutes = sorted(schedule.minute.allowed)
+    while day <= last_day:
+        if _matches_day(schedule, day):
+            # Local wall-clock order is not UTC order during a fall DST fold.
+            # Sort each day's candidates before selecting the next occurrence.
+            candidates: list[tuple[datetime, datetime]] = []
+            for hour in hours:
+                for minute in minutes:
+                    wall = datetime.combine(day, time(hour, minute))
+                    for fold in (0, 1):
+                        local = wall.replace(tzinfo=zone, fold=fold)
+                        try:
+                            utc = local.astimezone(timezone.utc)
+                            back = utc.astimezone(zone)
+                        except OverflowError:
+                            continue
+                        # A spring gap maps back to a different local minute.
+                        if back.replace(tzinfo=None) != wall:
+                            continue
+                        if utc_after < utc <= utc_end:
+                            candidates.append((utc, back))
+            seen: set[datetime] = set()
+            for utc, local in sorted(candidates, key=lambda pair: pair[0]):
+                if utc not in seen:
+                    result.append(local)
+                    seen.add(utc)
+                    if len(result) == count:
+                        return result
+        if day == date.max:
             break
-        try:
-            local = instant.astimezone(zone)
-        except OverflowError:
-            # A UTC instant near a datetime boundary may have no representable
-            # local counterpart. Later instants can still be representable.
-            continue
-        if schedule.matches(local):
-            result.append(local)
-            if len(result) == count:
-                break
+        day += timedelta(days=1)
     return result
