@@ -102,5 +102,52 @@ class CronScheduleTests(unittest.TestCase):
             occurrences(schedule, ZoneInfo('UTC'), datetime(2026, 1, 1))
 
 
+class BoundaryTests(unittest.TestCase):
+    def test_partial_results_at_datetime_max(self):
+        schedule = CronSchedule.parse('* * * * *')
+        results = occurrences(schedule, ZoneInfo('UTC'),
+                              instant('9999-12-31T23:58:00Z'), 2, 1)
+        self.assertEqual([item.isoformat() for item in results],
+                         ['9999-12-31T23:59:00+00:00'])
+
+    def test_no_minutes_after_datetime_max(self):
+        schedule = CronSchedule.parse('* * * * *')
+        self.assertEqual(occurrences(schedule, ZoneInfo('UTC'),
+                         instant('9999-12-31T23:59:00Z'), 1, 1), [])
+
+    def test_utc_minimum_with_negative_zone_offset(self):
+        schedule = CronSchedule.parse('0 0 * * *')
+        results = occurrences(schedule, ZoneInfo('America/New_York'),
+                              instant('0001-01-01T00:00:00Z'), 1, 2)
+        self.assertEqual(len(results), 1)
+        self.assertGreater(results[0].astimezone(UTC), instant('0001-01-01T00:00:00Z'))
+
+    def test_horizon_excludes_next_minute(self):
+        schedule = CronSchedule.parse('0 0 * * *')
+        self.assertEqual(occurrences(schedule, ZoneInfo('UTC'),
+                         instant('2026-11-01T00:00:00Z'), 1, 1),
+                         [instant('2026-11-02T00:00:00Z')])
+        self.assertEqual(occurrences(schedule, ZoneInfo('UTC'),
+                         instant('2026-11-01T00:00:00Z'), 2, 1),
+                         [instant('2026-11-02T00:00:00Z')])
+
+    def test_offset_timestamp_is_converted_to_utc(self):
+        schedule = CronSchedule.parse('* * * * *')
+        results = occurrences(schedule, ZoneInfo('UTC'),
+                              instant('2026-11-01T01:15:45+02:00'), 1, 1)
+        self.assertEqual(results[0].isoformat(), '2026-10-31T23:16:00+00:00')
+
+    def test_month_and_weekday_case_insensitive(self):
+        schedule = CronSchedule.parse('0 0 * jan,Feb mon-fri')
+        self.assertTrue(schedule.matches(instant('2026-02-02T00:00:00Z')))
+        self.assertFalse(schedule.matches(instant('2026-03-02T00:00:00Z')))
+
+    def test_no_value_leak_in_syntax_error(self):
+        secret = 'private-token-123'
+        with self.assertRaises(CronSyntaxError) as context:
+            CronSchedule.parse(secret + ' * * * *')
+        self.assertNotIn(secret, str(context.exception))
+
+
 if __name__ == '__main__':
     unittest.main()
